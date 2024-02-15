@@ -4,6 +4,7 @@ resource "google_compute_network" "my_vpc" {
   auto_create_subnetworks         = false
   routing_mode                    = "REGIONAL"
   delete_default_routes_on_create = true # Remove the default route after VPC creation
+  
 }
 
 # Create a subnet for webapp
