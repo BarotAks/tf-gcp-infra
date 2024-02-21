@@ -7,6 +7,11 @@ variable "region" {
   default     = "us-central1"
 }
 
+variable "routing_mode" {
+  description = "The routing mode for the VPC"
+  default     = "REGIONAL"
+}
+
 variable "vpc_name" {
   description = "Name of the VPC"
   default     = "my-vpc"
@@ -39,4 +44,33 @@ variable "internet_gateway_name" {
 variable "webapp_route_name" {
   description = "Name of the route for the webapp subnet"
   default     = "webapp-route"
+}
+
+variable "zone" {
+  description = "The zone to deploy resources in"
+  default     = "us-central1-a"
+}
+
+variable "webapp_firewall_name" {
+  description = "Name of the firewall rule for the webapp"
+  default     = "webapp-firewall"
+}
+
+variable "application_port" {
+  description = "The port the application listens to"
+  default     = "3000"
+}
+
+variable "instance_name" {
+  description = "Name of the instance"
+  default     = "webapp-instance"
+}
+
+variable "machine_type" {
+  description = "Machine type for the instance"
+  default     = "n1-standard-1"
+}
+
+variable "custom_image" {
+  description = "Custom image for the instance"
 }
