@@ -61,9 +61,9 @@ resource "google_compute_instance" "my_instance" {
   tags         = ["web-server"]
   boot_disk {
     initialize_params {
-      image = var.custom_image # YOUR_CUSTOM_IMAGE with your custom image name or URL
-      size  = 100              # Size of the boot disk in GB
-      type  = "pd-balanced"    # Type of the boot disk
+      image = var.custom_image   # YOUR_CUSTOM_IMAGE with your custom image name or URL
+      size  = var.size           # Size of the boot disk in GB
+      type  = var.boot_disk_type # Type of the boot disk
     }
   }
 

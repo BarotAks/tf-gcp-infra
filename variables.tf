@@ -74,3 +74,13 @@ variable "machine_type" {
 variable "custom_image" {
   description = "Custom image for the instance"
 }
+
+variable "size" {
+  description = "Size of the boot disk in GB"
+  default     = "100"
+}
+
+variable "boot_disk_type" {
+  description = "Type of the boot disk"
+  default     = "pd-balanced"
+}
