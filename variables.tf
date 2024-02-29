@@ -58,7 +58,8 @@ variable "webapp_firewall_name" {
 
 variable "application_port" {
   description = "The port the application listens to"
-  default     = "3000"
+  type        = list(string)
+  default     = ["3000"] # Default port for your application
 }
 
 variable "instance_name" {
@@ -83,4 +84,55 @@ variable "size" {
 variable "boot_disk_type" {
   description = "Type of the boot disk"
   default     = "pd-balanced"
+}
+
+variable "private_access_range_name" {
+  description = "Name of the private access range"
+  default     = "my-private-range"
+}
+
+variable "purpose" {
+  description = "Purpose of the private access range"
+  default     = "VPC_PEERING"
+}
+
+variable "address_type" {
+  description = "Type of the private access range"
+  default     = "INTERNAL"
+}
+
+variable "sql_instance_name" {
+  description = "The name of the Cloud SQL instance"
+}
+
+variable "sql_database_version" {
+  description = "The version of the Cloud SQL database"
+}
+
+variable "sql_tier" {
+  description = "The tier of the Cloud SQL instance"
+}
+
+variable "sql_disk_type" {
+  description = "The disk type of the Cloud SQL instance"
+}
+
+variable "sql_disk_size" {
+  description = "The disk size of the Cloud SQL instance"
+}
+
+variable "sql_availability_type" {
+  description = "The availability type of the Cloud SQL instance"
+}
+
+variable "sql_database_name" {
+  description = "The name of the Cloud SQL database"
+}
+
+variable "sql_user_name" {
+  description = "The name of the Cloud SQL user"
+}
+
+variable "deny_all_ingress" {
+  description = "Deny all ingress traffic"
 }

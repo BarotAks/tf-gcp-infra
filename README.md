@@ -1,4 +1,4 @@
-# # Terraform Infrastructure Setup for Google Cloud Platform (GCP)
+# Terraform Infrastructure Setup for Google Cloud Platform (GCP)
 
 This repository contains Terraform configuration files for setting up networking infrastructure on Google Cloud Platform (GCP).
 
@@ -31,6 +31,7 @@ Before using the Terraform configuration, you need to enable the following Googl
 gcloud services enable compute.googleapis.com
 gcloud services enable storage.googleapis.com
 gcloud services enable container.googleapis.com
+gcloud services enable servicenetworking.googleapis.com
 ```
 
 ## Downloading Repository and Running Terraform Commands
