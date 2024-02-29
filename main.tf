@@ -39,19 +39,39 @@ resource "google_compute_route" "webapp_route" {
   next_hop_gateway = "default-internet-gateway"
 }
 
-# Create firewall rules
+# Create firewall rule to deny all ingress traffic by default
+resource "google_compute_firewall" "deny_all_traffic" {
+  name    = var.deny_all_ingress
+  network = google_compute_network.my_vpc.self_link
+
+  # Deny all ingress traffic by default
+  deny {
+    protocol = "all" # deny all protocols
+  }
+
+  # Apply the firewall rule only to instances with the specified tags
+  source_tags = ["web-server"]
+}
+
+# Create firewall rule to allow traffic on specific ports
 resource "google_compute_firewall" "allow_web_traffic" {
   name    = var.webapp_firewall_name
   network = google_compute_network.my_vpc.self_link
 
+  # Allow traffic on the specified ports
   allow {
     protocol = "tcp"
-    ports    = [var.application_port] # YOUR_APPLICATION_PORT with the port your application listens to
+    ports    = var.application_port
   }
+
+  # Apply the firewall rule only to instances with the specified tags
+  # source_tags = ["web-server"]
+  # target_tags = ["${google_sql_database_instance.my_sql_instance.name}-client"]
 
   source_ranges = ["0.0.0.0/0"] # Allowing traffic from the internet
   target_tags   = ["web-server"]
 }
+
 
 # Create Compute Engine instance
 resource "google_compute_instance" "my_instance" {
@@ -59,6 +79,7 @@ resource "google_compute_instance" "my_instance" {
   machine_type = var.machine_type # Default machine type
   zone         = var.zone
   tags         = ["web-server"]
+  depends_on   = [google_compute_subnetwork.webapp_subnet, google_compute_subnetwork.db_subnet, google_service_networking_connection.private_access]
   boot_disk {
     initialize_params {
       image = var.custom_image   # YOUR_CUSTOM_IMAGE with your custom image name or URL
@@ -69,6 +90,102 @@ resource "google_compute_instance" "my_instance" {
 
   network_interface {
     subnetwork = google_compute_subnetwork.webapp_subnet.self_link
-    access_config {}
+    access_config {
+      nat_ip = google_compute_address.instance_ip.address
+    }
+  }
+
+  metadata_startup_script = <<-EOF
+    #!/bin/bash
+
+    # Database configuration
+    cat <<EOT >> /home/csye6225/webapp/.env
+    DB_HOST=${google_sql_database_instance.my_sql_instance.private_ip_address}
+    DB_USER=${google_sql_user.my_user.name}
+    DB_PASSWORD=${random_password.db_password.result}
+    DB_NAME=${google_sql_database.my_database.name}
+    EOT
+
+    # Ensure correct permissions for the .env file
+    sudo chmod 600 /home/csye6225/webapp/.env
+    sudo setenforce 0
+
+    # Restart the webapp service to apply the new database configuration
+    sudo systemctl stop webapp.service
+    sudo systemctl daemon-reload
+    sudo systemctl start webapp.service
+    sudo systemctl enable webapp.service
+  EOF
+}
+
+resource "google_compute_address" "instance_ip" {
+  name = "instance-ip"
+}
+
+# Enable private service access for the vpc
+resource "google_compute_global_address" "private_access_range" {
+  project       = google_compute_network.my_vpc.project
+  name          = var.private_access_range_name
+  purpose       = var.purpose
+  address_type  = var.address_type
+  network       = google_compute_network.my_vpc.self_link
+  prefix_length = 16
+}
+
+# Create private services connection
+resource "google_service_networking_connection" "private_access" {
+  network                 = google_compute_network.my_vpc.self_link
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.private_access_range.name]
+  lifecycle {
+    prevent_destroy = false
   }
 }
+
+# Create CloudSQL instance
+resource "google_sql_database_instance" "my_sql_instance" {
+  name                = var.sql_instance_name
+  database_version    = var.sql_database_version
+  region              = var.region
+  deletion_protection = false
+  depends_on          = [google_compute_subnetwork.db_subnet, google_service_networking_connection.private_access]
+  settings {
+    tier              = var.sql_tier
+    disk_type         = var.sql_disk_type
+    disk_size         = var.sql_disk_size
+    availability_type = var.sql_availability_type
+    # deletion_protection = false
+    ip_configuration {
+      ipv4_enabled    = false
+      private_network = google_compute_network.my_vpc.self_link
+      # enable_private_path_for_google_cloud_services = true
+    }
+    backup_configuration {
+      enabled            = true
+      binary_log_enabled = true # Enable binary logging
+      # start_time         = "20:55"
+    }
+  }
+}
+
+# Create CloudSQL Database
+resource "google_sql_database" "my_database" {
+  name     = var.sql_database_name
+  instance = google_sql_database_instance.my_sql_instance.name
+}
+
+# Create CloudSQL Database User
+resource "google_sql_user" "my_user" {
+  name     = var.sql_user_name
+  instance = google_sql_database_instance.my_sql_instance.name
+  password = random_password.db_password.result
+}
+
+# Generate random password
+resource "random_password" "db_password" {
+  length           = 16
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
+}
+
+
