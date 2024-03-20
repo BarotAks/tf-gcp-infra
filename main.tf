@@ -79,7 +79,8 @@ resource "google_compute_instance" "my_instance" {
   machine_type = var.machine_type # Default machine type
   zone         = var.zone
   tags         = ["web-server"]
-  depends_on   = [google_compute_subnetwork.webapp_subnet, google_compute_subnetwork.db_subnet, google_service_networking_connection.private_access]
+  depends_on = [google_compute_subnetwork.webapp_subnet, google_compute_subnetwork.db_subnet,
+  google_service_networking_connection.private_access, google_service_account_key.my_service_account_key]
   boot_disk {
     initialize_params {
       image = var.custom_image   # YOUR_CUSTOM_IMAGE with your custom image name or URL
@@ -93,6 +94,11 @@ resource "google_compute_instance" "my_instance" {
     access_config {
       nat_ip = google_compute_address.instance_ip.address
     }
+  }
+
+  service_account {
+    email  = google_service_account.my_service_account.email
+    scopes = var.service_account_scopes
   }
 
   metadata_startup_script = <<-EOF
@@ -189,3 +195,47 @@ resource "random_password" "db_password" {
 }
 
 
+# Create Cloud DNS Managed Zone
+# resource "google_dns_managed_zone" "my_dns_zone" {
+#   name        = var.dns_zone_name
+#   dns_name    = var.domain_name
+#   description = "Managed zone for ${var.domain_name}"
+# }
+
+# Create DNS Record Set for A record
+resource "google_dns_record_set" "a_record" {
+  name = var.domain_name
+  type = "A"
+  ttl  = 300
+  # managed_zone = google_dns_managed_zone.my_dns_zone.name
+  managed_zone = var.dns_zone_name
+  rrdatas      = [google_compute_address.instance_ip.address]
+}
+
+# Create a Service Account
+resource "google_service_account" "my_service_account" {
+  account_id   = var.service_account_id
+  display_name = var.service_account_display_name
+}
+
+# Create a Service Account Key
+resource "google_service_account_key" "my_service_account_key" {
+  service_account_id = google_service_account.my_service_account.id
+}
+
+# Bind IAM roles to the Service Account
+resource "google_project_iam_binding" "service_account_roles" {
+  project = var.project_id
+  role    = "roles/logging.admin"
+  members = [
+    "serviceAccount:${google_service_account.my_service_account.email}"
+  ]
+}
+
+resource "google_project_iam_binding" "metric_writer_role" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  members = [
+    "serviceAccount:${google_service_account.my_service_account.email}"
+  ]
+}
