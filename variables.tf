@@ -136,3 +136,26 @@ variable "sql_user_name" {
 variable "deny_all_ingress" {
   description = "Deny all ingress traffic"
 }
+
+variable "dns_zone_name" {
+  description = "The name of the DNS zone"
+}
+
+variable "domain_name" {
+  description = "The domain name"
+}
+
+variable "service_account_id" {
+  description = "The service account ID"
+
+}
+
+variable "service_account_display_name" {
+  description = "The display name for the service account"
+}
+
+variable "service_account_scopes" {
+  description = "The scopes for the service account"
+  type        = list(string)
+  default     = ["cloud-platform"]
+}
