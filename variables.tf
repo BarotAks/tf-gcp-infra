@@ -159,3 +159,35 @@ variable "service_account_scopes" {
   type        = list(string)
   default     = ["cloud-platform"]
 }
+
+variable "pubsub_topic_name" {}
+variable "subscription_name" {}
+# variable "service_account_email" {}
+
+variable "source_archive_bucket" {
+  description = "The name of the Google Cloud Storage bucket containing the function's ZIP file"
+}
+
+variable "source_archive_object" {
+  description = "The path to the function's ZIP file in the Google Cloud Storage bucket"
+}
+
+variable "mailgun_api_key" {
+
+}
+
+variable "mailgun_domain" {
+
+}
+
+variable "serverless_connector_name" {
+
+}
+
+variable "serverless_connector_ip" {
+
+}
+
+variable "service_account_cf_id" {
+
+}
