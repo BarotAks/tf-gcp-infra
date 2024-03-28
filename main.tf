@@ -110,6 +110,8 @@ resource "google_compute_instance" "my_instance" {
     DB_USER=${google_sql_user.my_user.name}
     DB_PASSWORD=${random_password.db_password.result}
     DB_NAME=${google_sql_database.my_database.name}
+    PUBSUB_TOPIC=${google_pubsub_topic.verify_email_topic.name}
+    PROJECT_ID=${var.project_id}
     EOT
 
     # Ensure correct permissions for the .env file
@@ -239,3 +241,215 @@ resource "google_project_iam_binding" "metric_writer_role" {
     "serviceAccount:${google_service_account.my_service_account.email}"
   ]
 }
+
+# Create Pub/Sub Topic
+resource "google_pubsub_topic" "verify_email_topic" {
+  name = var.pubsub_topic_name
+  labels = {
+    retention_duration = "604800s" # 7 days in seconds
+  }
+}
+
+# Create Pub/Sub Subscription
+resource "google_pubsub_subscription" "verify_email_subscription" {
+  name                 = var.subscription_name
+  topic                = google_pubsub_topic.verify_email_topic.id
+  ack_deadline_seconds = 10
+}
+
+# Create a Service Account for Cloud Functions
+resource "google_service_account" "service-account-cf" {
+  account_id   = var.service_account_cf_id
+  display_name = "CSYE6225 Cloud functions Service Account"
+}
+
+# Create a Pub/Sub Topic IAM policy
+resource "google_pubsub_topic_iam_policy" "topic_policy" {
+  topic = google_pubsub_topic.verify_email_topic.name
+
+  policy_data = jsonencode({
+    bindings = [
+      {
+        role = "roles/pubsub.publisher"
+        members = ["serviceAccount:${google_service_account.service-account-cf.email}",
+        "serviceAccount:${google_service_account.my_service_account.email}"]
+      },
+    ]
+  })
+}
+
+# Create a Pub/Sub Topic IAM binding
+resource "google_pubsub_topic_iam_binding" "topic-binding" {
+  project = google_pubsub_topic.verify_email_topic.project
+  topic   = google_pubsub_topic.verify_email_topic.name
+  role    = "roles/pubsub.publisher"
+  members = [
+    "serviceAccount:${google_service_account.service-account-cf.email}",
+    "serviceAccount:${google_service_account.my_service_account.email}"
+  ]
+}
+
+# Create a Pub/Sub Topic IAM member
+resource "google_pubsub_topic_iam_member" "topic-member" {
+  project = google_pubsub_topic.verify_email_topic.project
+  topic   = google_pubsub_topic.verify_email_topic.name
+  role    = "roles/pubsub.admin"
+  member  = "serviceAccount:${google_service_account.service-account-cf.email}"
+}
+
+# Create a Pub/Sub Subscription IAM policy
+resource "google_pubsub_subscription_iam_policy" "subscription_policy" {
+  subscription = google_pubsub_subscription.verify_email_subscription.name
+
+  policy_data = jsonencode({
+    bindings = [
+      {
+        role = "roles/pubsub.subscriber"
+        members = ["serviceAccount:${google_service_account.service-account-cf.email}",
+        "serviceAccount:${google_service_account.my_service_account.email}"]
+      },
+    ]
+  })
+}
+
+# Create a Pub/Sub Subscription IAM binding
+resource "google_pubsub_subscription_iam_binding" "subscription-binding" {
+  subscription = google_pubsub_subscription.verify_email_subscription.name
+  role         = "roles/pubsub.subscriber"
+  members = [
+    "serviceAccount:${google_service_account.service-account-cf.email}",
+    "serviceAccount:${google_service_account.my_service_account.email}"
+  ]
+}
+
+# Create a Pub/Sub Subscription IAM member
+resource "google_pubsub_subscription_iam_member" "subscription-iam" {
+  subscription = google_pubsub_subscription.verify_email_subscription.name
+  role         = "roles/pubsub.admin"
+  member       = "serviceAccount:${google_service_account.service-account-cf.email}"
+}
+
+# Create IAM binding for Pub/Sub service account
+resource "google_project_iam_binding" "pubsub_service_account_role" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountTokenCreator"
+  members = [
+    "serviceAccount:${google_service_account.my_service_account.email}"
+  ]
+}
+
+# Create a Google Cloud Storage bucket for Cloud Function source code
+resource "google_storage_bucket" "cloud_function_bucket" {
+  name     = var.source_archive_bucket
+  location = var.region
+}
+
+data "archive_file" "default" {
+  type        = "zip"
+  output_path = "./serverless.zip" # Use path.module to refer to the current directory
+  source_dir  = "../serverless/"   # Use path.module as the source directory
+}
+
+resource "google_storage_bucket_object" "cloud-function-object" {
+  name   = "function-source.zip"
+  bucket = google_storage_bucket.cloud_function_bucket.name
+  source = data.archive_file.default.output_path # Path to the zipped function source code
+}
+
+# # Create a Serverless VPC Connector
+# resource "google_compute_network" "serverless_connector_network" {
+#   name                            = var.serverless_connector_network_name
+#   auto_create_subnetworks         = false
+#   routing_mode                    = var.routing_mode
+#   delete_default_routes_on_create = true # Remove the default route after VPC creation
+# }
+
+# resource "google_compute_global_address" "serverless_connector_ip" {
+#   name          = var.serverless_connector_ip_name
+#   purpose       = var.purpose
+#   address_type  = var.address_type
+#   prefix_length = 16
+#   network       = google_compute_network.serverless_connector_network.self_link
+# }
+
+resource "google_service_networking_connection" "serverless_connector_connection" {
+  network                 = google_compute_network.my_vpc.id
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.private_access_range.name]
+  lifecycle {
+    prevent_destroy = false
+  }
+}
+
+# Create a Serverless VPC Connector
+resource "google_vpc_access_connector" "serverless_connector" {
+  name           = var.serverless_connector_name
+  network        = google_compute_network.my_vpc.id
+  ip_cidr_range  = var.serverless_connector_ip
+  min_throughput = 200
+  max_throughput = 300
+}
+
+# Create Cloud Function to handle email verification
+resource "google_cloudfunctions2_function" "cloud-function" {
+  name        = "cloud-function"
+  description = "Cloud Function to verify email addresses"
+  location    = var.region
+
+  build_config {
+    runtime     = "nodejs16"
+    entry_point = "helloPubSub"
+    environment_variables = {
+      MAILGUN_API_KEY = var.mailgun_api_key
+      MAILGUN_DOMAIN  = var.mailgun_domain
+      DB_HOST         = google_sql_database_instance.my_sql_instance.private_ip_address
+      DB_USER         = google_sql_user.my_user.name
+      DB_PASSWORD     = random_password.db_password.result
+      DB_NAME         = google_sql_database.my_database.name
+      PROJECT_ID      = var.project_id
+      PUBSUB_TOPIC    = google_pubsub_topic.verify_email_topic.name
+    }
+    source {
+      storage_source {
+        bucket = google_storage_bucket.cloud_function_bucket.name
+        object = google_storage_bucket_object.cloud-function-object.name
+      }
+    }
+  }
+
+  service_config {
+    max_instance_count = 3
+    min_instance_count = 1
+    available_memory   = "256M"
+    timeout_seconds    = 60
+    vpc_connector      = google_vpc_access_connector.serverless_connector.name
+    environment_variables = {
+      SERVICE_CONFIG_TEST = "config_test"
+    }
+    ingress_settings               = "ALLOW_INTERNAL_ONLY"
+    all_traffic_on_latest_revision = true
+    service_account_email          = google_service_account.my_service_account.email
+  }
+  # depends_on = [google_service_networking_connection.serverless_connector_connection]
+
+  event_trigger {
+    trigger_region = "us-central1"
+    event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic   = google_pubsub_topic.verify_email_topic.id
+    retry_policy   = "RETRY_POLICY_RETRY"
+  }
+
+  depends_on = [google_service_networking_connection.serverless_connector_connection]
+}
+
+# # IAM Binding for Cloud Function
+# resource "google_cloudfunctions2_function_iam_binding" "cloud-function_role" {
+#   project        = var.project_id
+#   location       = var.region
+#   cloud_function = google_cloudfunctions2_function.cloud-function.name
+#   role           = "roles/cloudfunctions.invoker"
+#   members = [
+#     "serviceAccount:${google_service_account.my_service_account.email}",
+#   ]
+# }
+
