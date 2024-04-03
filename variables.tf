@@ -191,3 +191,27 @@ variable "serverless_connector_ip" {
 variable "service_account_cf_id" {
 
 }
+
+variable "instance_template_name" {
+
+}
+
+variable "app_port" {
+
+}
+
+variable "health_check_name" {
+
+}
+
+variable "autoscaler_name" {
+
+}
+
+variable "instance_group_manager_name" {
+
+}
+
+variable "base_instance_name" {
+
+}
