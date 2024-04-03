@@ -215,3 +215,13 @@ variable "instance_group_manager_name" {
 variable "base_instance_name" {
 
 }
+
+variable "private_key_path" {
+  type    = string
+  default = "C://Users//akshi//Downloads//f23cloud.me.key"
+}
+
+variable "certificate_path" {
+  type    = string
+  default = "C://Users//akshi//Downloads//f23cloud_me//f23cloud_me.crt"
+}

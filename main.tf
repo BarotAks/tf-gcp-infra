@@ -712,8 +712,8 @@ resource "google_compute_backend_service" "lb_backend_service" {
 # Set up SSL certificates using Google-managed SSL certificates
 resource "google_compute_ssl_certificate" "ssl_certificate" {
   name_prefix = "ssl-certificate-"
-  private_key = file("C://Users//akshi//Downloads//f23cloud.me.key")
-  certificate = file("C://Users//akshi//Downloads//f23cloud_me//f23cloud_me.crt")
+  private_key = file(var.private_key_path)
+  certificate = file(var.certificate_path)
 
   lifecycle {
     create_before_destroy = true
