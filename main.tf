@@ -73,58 +73,58 @@ resource "google_compute_firewall" "allow_web_traffic" {
 }
 
 
-# Create Compute Engine instance
-resource "google_compute_instance" "my_instance" {
-  name         = var.instance_name
-  machine_type = var.machine_type # Default machine type
-  zone         = var.zone
-  tags         = ["web-server"]
-  depends_on = [google_compute_subnetwork.webapp_subnet, google_compute_subnetwork.db_subnet,
-  google_service_networking_connection.private_access, google_service_account_key.my_service_account_key]
-  boot_disk {
-    initialize_params {
-      image = var.custom_image   # YOUR_CUSTOM_IMAGE with your custom image name or URL
-      size  = var.size           # Size of the boot disk in GB
-      type  = var.boot_disk_type # Type of the boot disk
-    }
-  }
+# # Create Compute Engine instance
+# resource "google_compute_instance" "my_instance" {
+#   name         = var.instance_name
+#   machine_type = var.machine_type # Default machine type
+#   zone         = var.zone
+#   tags         = ["web-server"]
+#   depends_on = [google_compute_subnetwork.webapp_subnet, google_compute_subnetwork.db_subnet,
+#   google_service_networking_connection.private_access, google_service_account_key.my_service_account_key]
+#   boot_disk {
+#     initialize_params {
+#       image = var.custom_image   # YOUR_CUSTOM_IMAGE with your custom image name or URL
+#       size  = var.size           # Size of the boot disk in GB
+#       type  = var.boot_disk_type # Type of the boot disk
+#     }
+#   }
 
-  network_interface {
-    subnetwork = google_compute_subnetwork.webapp_subnet.self_link
-    access_config {
-      nat_ip = google_compute_address.instance_ip.address
-    }
-  }
+#   network_interface {
+#     subnetwork = google_compute_subnetwork.webapp_subnet.self_link
+#     access_config {
+#       nat_ip = google_compute_address.instance_ip.address
+#     }
+#   }
 
-  service_account {
-    email  = google_service_account.my_service_account.email
-    scopes = var.service_account_scopes
-  }
+#   service_account {
+#     email  = google_service_account.my_service_account.email
+#     scopes = var.service_account_scopes
+#   }
 
-  metadata_startup_script = <<-EOF
-    #!/bin/bash
+#   metadata_startup_script = <<-EOF
+#     #!/bin/bash
 
-    # Database configuration
-    cat <<EOT >> /home/csye6225/webapp/.env
-    DB_HOST=${google_sql_database_instance.my_sql_instance.private_ip_address}
-    DB_USER=${google_sql_user.my_user.name}
-    DB_PASSWORD=${random_password.db_password.result}
-    DB_NAME=${google_sql_database.my_database.name}
-    PUBSUB_TOPIC=${google_pubsub_topic.verify_email_topic.name}
-    PROJECT_ID=${var.project_id}
-    EOT
+#     # Database configuration
+#     cat <<EOT >> /home/csye6225/webapp/.env
+#     DB_HOST=${google_sql_database_instance.my_sql_instance.private_ip_address}
+#     DB_USER=${google_sql_user.my_user.name}
+#     DB_PASSWORD=${random_password.db_password.result}
+#     DB_NAME=${google_sql_database.my_database.name}
+#     PUBSUB_TOPIC=${google_pubsub_topic.verify_email_topic.name}
+#     PROJECT_ID=${var.project_id}
+#     EOT
 
-    # Ensure correct permissions for the .env file
-    sudo chmod 600 /home/csye6225/webapp/.env
-    sudo setenforce 0
+#     # Ensure correct permissions for the .env file
+#     sudo chmod 600 /home/csye6225/webapp/.env
+#     sudo setenforce 0
 
-    # Restart the webapp service to apply the new database configuration
-    sudo systemctl stop webapp.service
-    sudo systemctl daemon-reload
-    sudo systemctl start webapp.service
-    sudo systemctl enable webapp.service
-  EOF
-}
+#     # Restart the webapp service to apply the new database configuration
+#     sudo systemctl stop webapp.service
+#     sudo systemctl daemon-reload
+#     sudo systemctl start webapp.service
+#     sudo systemctl enable webapp.service
+#   EOF
+# }
 
 resource "google_compute_address" "instance_ip" {
   name = "instance-ip"
@@ -204,15 +204,15 @@ resource "random_password" "db_password" {
 #   description = "Managed zone for ${var.domain_name}"
 # }
 
-# Create DNS Record Set for A record
-resource "google_dns_record_set" "a_record" {
-  name = var.domain_name
-  type = "A"
-  ttl  = 300
-  # managed_zone = google_dns_managed_zone.my_dns_zone.name
-  managed_zone = var.dns_zone_name
-  rrdatas      = [google_compute_address.instance_ip.address]
-}
+# # Create DNS Record Set for A record
+# resource "google_dns_record_set" "a_record" {
+#   name = var.domain_name
+#   type = "A"
+#   ttl  = 300
+#   # managed_zone = google_dns_managed_zone.my_dns_zone.name
+#   managed_zone = var.dns_zone_name
+#   rrdatas      = [google_compute_address.instance_ip.address]
+# }
 
 # Create a Service Account
 resource "google_service_account" "my_service_account" {
@@ -310,6 +310,10 @@ resource "google_pubsub_subscription_iam_policy" "subscription_policy" {
       },
     ]
   })
+  lifecycle {
+    create_before_destroy = true
+    prevent_destroy       = false
+  }
 }
 
 # Create a Pub/Sub Subscription IAM binding
@@ -408,6 +412,7 @@ resource "google_cloudfunctions2_function" "cloud-function" {
       DB_NAME         = google_sql_database.my_database.name
       PROJECT_ID      = var.project_id
       PUBSUB_TOPIC    = google_pubsub_topic.verify_email_topic.name
+      LINK            = var.domain_name
     }
     source {
       storage_source {
@@ -425,6 +430,15 @@ resource "google_cloudfunctions2_function" "cloud-function" {
     vpc_connector      = google_vpc_access_connector.serverless_connector.name
     environment_variables = {
       SERVICE_CONFIG_TEST = "config_test"
+      MAILGUN_API_KEY     = var.mailgun_api_key
+      MAILGUN_DOMAIN      = var.mailgun_domain
+      DB_HOST             = google_sql_database_instance.my_sql_instance.private_ip_address
+      DB_USER             = google_sql_user.my_user.name
+      DB_PASSWORD         = random_password.db_password.result
+      DB_NAME             = google_sql_database.my_database.name
+      PROJECT_ID          = var.project_id
+      PUBSUB_TOPIC        = google_pubsub_topic.verify_email_topic.name
+      LINK                = var.domain_name
     }
     ingress_settings               = "ALLOW_INTERNAL_ONLY"
     all_traffic_on_latest_revision = true
@@ -453,3 +467,264 @@ resource "google_cloudfunctions2_function" "cloud-function" {
 #   ]
 # }
 
+# Create a regional compute instance template
+resource "google_compute_region_instance_template" "web_instance_template" {
+  name_prefix  = var.instance_template_name
+  region       = var.region
+  machine_type = var.machine_type
+  tags         = ["web-server"]
+  depends_on = [google_compute_subnetwork.webapp_subnet, google_compute_subnetwork.db_subnet,
+  google_service_networking_connection.private_access, google_service_account_key.my_service_account_key]
+
+  disk {
+    source_image = var.custom_image
+    auto_delete  = true
+    boot         = true
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  network_interface {
+    # network    = google_compute_network.my_vpc.self_link
+    subnetwork = google_compute_subnetwork.webapp_subnet.self_link
+  }
+
+  service_account {
+    email  = google_service_account.my_service_account.email
+    scopes = var.service_account_scopes
+  }
+
+  metadata_startup_script = <<-EOF
+    #!/bin/bash
+
+    # Database configuration
+    cat <<EOT >> /home/csye6225/webapp/.env
+    DB_HOST=${google_sql_database_instance.my_sql_instance.private_ip_address}
+    DB_USER=${google_sql_user.my_user.name}
+    DB_PASSWORD=${random_password.db_password.result}
+    DB_NAME=${google_sql_database.my_database.name}
+    PUBSUB_TOPIC=${google_pubsub_topic.verify_email_topic.name}
+    PROJECT_ID=${var.project_id}
+    EOT
+
+    # Ensure correct permissions for the .env file
+    sudo chmod 600 /home/csye6225/webapp/.env
+    sudo setenforce 0
+
+    # Restart the webapp service to apply the new database configuration
+    sudo systemctl stop webapp.service
+    sudo systemctl daemon-reload
+    sudo systemctl start webapp.service
+    sudo systemctl enable webapp.service
+  EOF
+}
+
+# Create a compute health check
+resource "google_compute_health_check" "webapp_health_check" {
+  name                = var.health_check_name
+  check_interval_sec  = 5  # Check the health every 10 seconds
+  timeout_sec         = 5  # Timeout after 5 seconds
+  healthy_threshold   = 2  # Mark as healthy after 2 successful checks
+  unhealthy_threshold = 10 # Mark as unhealthy after 10 failed checks
+
+  http_health_check {
+    port_specification = "USE_FIXED_PORT"
+    request_path       = "/healthz"   # Endpoint to check for health
+    port               = var.app_port # Port where your web application is running
+  }
+}
+
+# # Create a compute health check (regional)
+# resource "google_compute_region_health_check" "webapp_health_check" {
+#   name                = var.health_check_name
+#   region              = var.region
+#   check_interval_sec  = 10
+#   timeout_sec         = 5
+#   healthy_threshold   = 2
+#   unhealthy_threshold = 10
+
+#   http_health_check {
+#     port         = 3000
+#     request_path = "/healthz"
+#   }
+# }
+
+# # Create a compute health check
+# resource "google_compute_http_health_check" "webapp_health_check" {
+#   name                = var.health_check_name
+#   check_interval_sec  = 10
+#   timeout_sec         = 5
+#   healthy_threshold   = 2
+#   unhealthy_threshold = 10
+
+#   request_path = "/healthz"
+#   # port         = var.app_port
+#   port = 3000 # HTTPS port
+# }
+
+
+# Create a compute autoscaler
+resource "google_compute_region_autoscaler" "webapp_autoscaler" {
+  name   = var.autoscaler_name
+  region = var.region
+  target = google_compute_region_instance_group_manager.webapp_instance_group_manager.self_link
+  autoscaling_policy {
+    min_replicas    = 1
+    max_replicas    = 5
+    cooldown_period = 60
+    cpu_utilization {
+      target = 0.05
+    }
+  }
+}
+
+# # Create a compute autoscaler
+# resource "google_compute_autoscaler" "web_autoscaler" {
+#   name   = var.autoscaler_name
+#   # zone   = var.zone
+#   target = google_compute_region_instance_group_manager.web_instance_group_manager.self_link
+#   autoscaling_policy {
+#     min_replicas    = 1
+#     max_replicas    = 10
+#     cooldown_period = 60
+#     cpu_utilization {
+#       target = 0.05
+#     }
+#   }
+# }
+
+# resource "google_compute_target_pool" "web_target_pool" {
+#   name          = "web-target-pool"
+#   region        = var.region
+#   health_checks = [google_compute_health_check.webapp_health_check.self_link]
+# }
+
+
+# Create a regional compute instance group manager
+resource "google_compute_region_instance_group_manager" "webapp_instance_group_manager" {
+  name               = var.instance_group_manager_name
+  region             = var.region
+  base_instance_name = var.base_instance_name
+  target_size        = 1
+  named_port {
+    name = "http"
+    port = var.app_port
+  }
+  # target_pools = [google_compute_target_pool.web_target_pool.self_link]
+  version {
+    instance_template = google_compute_region_instance_template.web_instance_template.self_link
+  }
+  auto_healing_policies {
+    health_check      = google_compute_health_check.webapp_health_check.self_link
+    initial_delay_sec = 60
+  }
+}
+
+# # Update firewall rules to allow traffic from load balancer only
+# resource "google_compute_firewall" "allow_lb_traffic" {
+#   name    = "allow-lb-traffic"
+#   network = google_compute_network.my_vpc.self_link
+
+#   allow {
+#     protocol = "tcp"
+#     ports    = ["80", "443"]
+#   }
+
+#   source_ranges = [google_compute_global_forwarding_rule.lb_forwarding_rule.ip_address]
+#   target_tags   = ["web-server"]
+# }
+
+# Update firewall rules to allow traffic from load balancer only
+resource "google_compute_firewall" "allow_lb_traffic" {
+  name    = "allow-lb-traffic"
+  network = google_compute_network.my_vpc.self_link
+
+  allow {
+    protocol = "tcp"
+    ports    = ["8080"]
+  }
+  source_ranges = ["130.211.0.0/22", "35.191.0.0/16"]
+}
+
+# Create a reserved IP address for the load balancer
+resource "google_compute_global_address" "lb_ip" {
+  name = "lb-ip"
+}
+
+# Create an external Application Load Balancer
+resource "google_compute_global_forwarding_rule" "lb_forwarding_rule" {
+  name = "lb-forwarding-rule"
+  # ip_protocol           = "TCP"
+  load_balancing_scheme = "EXTERNAL"
+  ip_address            = google_compute_global_address.lb_ip.address
+  target                = google_compute_target_https_proxy.lb_http_proxy.self_link
+  port_range            = "443"
+}
+
+resource "google_compute_target_https_proxy" "lb_http_proxy" {
+  name             = "lb-http-proxy"
+  project          = var.project_id
+  url_map          = google_compute_url_map.lb_url_map.self_link
+  ssl_certificates = [google_compute_ssl_certificate.ssl_certificate.id]
+}
+
+resource "google_compute_url_map" "lb_url_map" {
+  name            = "lb-url-map"
+  project         = var.project_id
+  default_service = google_compute_backend_service.lb_backend_service.self_link
+}
+
+# resource "google_compute_backend_service" "lb_backend_service" {
+#   name = "lb-backend-service"
+#   backend {
+#     group = google_compute_region_backend_service.lb_region_backend_service.self_link
+#   }
+#   load_balancing_scheme = "EXTERNAL"
+# }
+
+# resource "google_compute_region_backend_service" "lb_region_backend_service" {
+#   name     = "lb-region-backend-service"
+#   region   = var.region
+#   project  = var.project_id
+#   protocol = "HTTP"
+#   port_name     = "http"
+#   timeout_sec   = 300
+#   health_checks = [google_compute_http_health_check.webapp_health_check.self_link]
+#   backend {
+#     group = google_compute_region_instance_group_manager.webapp_instance_group_manager.instance_group
+#   }
+# }
+
+resource "google_compute_backend_service" "lb_backend_service" {
+  name                  = "lb-backend-service"
+  port_name             = "http"
+  protocol              = "HTTP"
+  load_balancing_scheme = "EXTERNAL"
+  timeout_sec           = 10
+  backend {
+    group = google_compute_region_instance_group_manager.webapp_instance_group_manager.instance_group
+  }
+  health_checks = [google_compute_health_check.webapp_health_check.self_link]
+}
+
+# Set up SSL certificates using Google-managed SSL certificates
+resource "google_compute_ssl_certificate" "ssl_certificate" {
+  name_prefix = "ssl-certificate-"
+  private_key = file("C://Users//akshi//Downloads//f23cloud.me.key")
+  certificate = file("C://Users//akshi//Downloads//f23cloud_me//f23cloud_me.crt")
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Update the DNS record to point to the load balancer's IP address
+resource "google_dns_record_set" "a_record" {
+  name         = var.domain_name
+  type         = "A"
+  ttl          = 300
+  managed_zone = var.dns_zone_name
+  rrdatas      = [google_compute_global_address.lb_ip.address]
+}
