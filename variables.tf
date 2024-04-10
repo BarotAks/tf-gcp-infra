@@ -162,7 +162,8 @@ variable "service_account_scopes" {
 
 variable "pubsub_topic_name" {}
 variable "subscription_name" {}
-# variable "service_account_email" {}
+variable "service_account_email" {}
+variable "project_number" {}
 
 variable "source_archive_bucket" {
   description = "The name of the Google Cloud Storage bucket containing the function's ZIP file"
@@ -224,4 +225,8 @@ variable "private_key_path" {
 variable "certificate_path" {
   type    = string
   default = "C://Users//akshi//Downloads//f23cloud_me//f23cloud_me.crt"
+}
+
+variable "key_ring" {
+
 }
