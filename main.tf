@@ -8,20 +8,22 @@ resource "google_compute_network" "my_vpc" {
 
 # Create a subnet for webapp
 resource "google_compute_subnetwork" "webapp_subnet" {
-  name          = var.webapp_subnet_name
-  region        = var.region
-  network       = google_compute_network.my_vpc.self_link
-  ip_cidr_range = var.webapp_subnet_cidr
-  depends_on    = [google_compute_network.my_vpc]
+  name                     = var.webapp_subnet_name
+  region                   = var.region
+  network                  = google_compute_network.my_vpc.self_link
+  ip_cidr_range            = var.webapp_subnet_cidr
+  depends_on               = [google_compute_network.my_vpc]
+  private_ip_google_access = true
 }
 
 # Create a subnet for db
 resource "google_compute_subnetwork" "db_subnet" {
-  name          = var.db_subnet_name
-  region        = var.region
-  network       = google_compute_network.my_vpc.self_link
-  ip_cidr_range = var.db_subnet_cidr
-  depends_on    = [google_compute_network.my_vpc]
+  name                     = var.db_subnet_name
+  region                   = var.region
+  network                  = google_compute_network.my_vpc.self_link
+  ip_cidr_range            = var.db_subnet_cidr
+  depends_on               = [google_compute_network.my_vpc]
+  private_ip_google_access = true
 }
 
 # Create an intenet gateway
@@ -163,6 +165,7 @@ resource "google_sql_database_instance" "my_sql_instance" {
     disk_size         = var.sql_disk_size
     availability_type = var.sql_availability_type
     # deletion_protection = false
+    activation_policy = "ALWAYS"
     ip_configuration {
       ipv4_enabled    = false
       private_network = google_compute_network.my_vpc.self_link
@@ -174,6 +177,7 @@ resource "google_sql_database_instance" "my_sql_instance" {
       # start_time         = "20:55"
     }
   }
+  encryption_key_name = google_kms_crypto_key.sql_crypto_key.id
 }
 
 # Create CloudSQL Database
@@ -346,6 +350,9 @@ resource "google_project_iam_binding" "pubsub_service_account_role" {
 resource "google_storage_bucket" "cloud_function_bucket" {
   name     = var.source_archive_bucket
   location = var.region
+  encryption {
+    default_kms_key_name = google_kms_crypto_key.storage_crypto_key.id
+  }
 }
 
 data "archive_file" "default" {
@@ -447,7 +454,7 @@ resource "google_cloudfunctions2_function" "cloud-function" {
   # depends_on = [google_service_networking_connection.serverless_connector_connection]
 
   event_trigger {
-    trigger_region = "us-central1"
+    trigger_region = var.region
     event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
     pubsub_topic   = google_pubsub_topic.verify_email_topic.id
     retry_policy   = "RETRY_POLICY_RETRY"
@@ -480,6 +487,11 @@ resource "google_compute_region_instance_template" "web_instance_template" {
     source_image = var.custom_image
     auto_delete  = true
     boot         = true
+    type         = "BALANCED"
+    disk_size_gb = var.size
+    disk_encryption_key {
+      kms_key_self_link = google_kms_crypto_key.vm_crypto_key.id
+    }
   }
 
   lifecycle {
@@ -571,8 +583,8 @@ resource "google_compute_region_autoscaler" "webapp_autoscaler" {
   region = var.region
   target = google_compute_region_instance_group_manager.webapp_instance_group_manager.self_link
   autoscaling_policy {
-    min_replicas    = 1
-    max_replicas    = 5
+    min_replicas    = 3
+    max_replicas    = 6
     cooldown_period = 60
     cpu_utilization {
       target = 0.05
@@ -728,3 +740,82 @@ resource "google_dns_record_set" "a_record" {
   managed_zone = var.dns_zone_name
   rrdatas      = [google_compute_global_address.lb_ip.address]
 }
+
+data "google_compute_default_service_account" "default" {
+  provider = google
+}
+
+resource "google_kms_crypto_key_iam_binding" "sql_crypto_key_iam_binding" {
+  crypto_key_id = google_kms_crypto_key.sql_crypto_key.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  members = [
+    "serviceAccount:service-$(var.project_number)@gcp-sa-cloud-sql.iam.gserviceaccount.com",
+  ]
+}
+
+resource "google_project_service_identity" "cloudsql_service_account" {
+  provider = google-beta
+
+  project = var.project_id
+  service = "sqladmin.googleapis.com"
+}
+
+
+# resource "google_project_iam_binding" "service_account_roles_cloudsql" {
+#   project = var.project_id
+#   role    = "roles/cloudsql.admin"
+#   members = [
+#     "serviceAccount:${google_service_account.my_service_account.email}"
+#   ]
+# }
+
+# resource "google_project_iam_binding" "cloud_storage_roles_cloudkms" {
+#   project = var.project_id
+#   role    = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+#   members = [
+#     "serviceAccount:${google_service_account.my_service_account.email}",
+#     "serviceAccount:${google_service_account.service-account-cf.email}"
+#   ]
+# }
+
+# resource "google_project_iam_member" "storage_service_account_role" {
+#   project = var.project_id
+#   role    = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+#   member  = "serviceAccount:${google_service_account.my_service_account.email}"
+# }
+
+
+resource "random_id" "example_id" {
+  byte_length = 8
+}
+
+# # Create a key ring
+# resource "google_kms_key_ring" "my_key_ring" {
+#   name     = "my-key-ring-${random_id.example_id.hex}"
+#   location = var.region
+# }
+
+# Create CKEM for Virtual Machines
+resource "google_kms_crypto_key" "vm_crypto_key" {
+  name = "vm-crypto-key-${random_id.example_id.hex}"
+  # key_ring        = google_kms_key_ring.my_key_ring.id
+  key_ring        = "projects/${var.project_id}/locations/${var.region}/keyRings/${var.key_ring}"
+  rotation_period = "2592000s" # 30 days in seconds
+}
+
+# Create CKEM for CloudSQL instance
+resource "google_kms_crypto_key" "sql_crypto_key" {
+  name = "sql-crypto-key-${random_id.example_id.hex}"
+  # key_ring        = google_kms_key_ring.my_key_ring.id
+  key_ring        = "projects/${var.project_id}/locations/${var.region}/keyRings/${var.key_ring}"
+  rotation_period = "2592000s" # 30 days in seconds
+}
+
+# Create CKEM for Cloud Storage
+resource "google_kms_crypto_key" "storage_crypto_key" {
+  name = "storage-crypto-key-${random_id.example_id.hex}"
+  # key_ring        = google_kms_key_ring.my_key_ring.id
+  key_ring        = "projects/${var.project_id}/locations/${var.region}/keyRings/${var.key_ring}"
+  rotation_period = "2592000s" # 30 days in seconds
+}
+
