@@ -476,12 +476,12 @@ resource "google_cloudfunctions2_function" "cloud-function" {
 
 # Create a regional compute instance template
 resource "google_compute_region_instance_template" "web_instance_template" {
-  name_prefix  = var.instance_template_name
+  name  = var.instance_template_name
   region       = var.region
   machine_type = var.machine_type
   tags         = ["web-server"]
   depends_on = [google_compute_subnetwork.webapp_subnet, google_compute_subnetwork.db_subnet,
-  google_service_networking_connection.private_access, google_service_account_key.my_service_account_key]
+  google_service_networking_connection.private_access, google_service_account_key.my_service_account_key, google_kms_crypto_key.vm_crypto_key]
 
   disk {
     source_image = var.custom_image
@@ -745,12 +745,66 @@ data "google_compute_default_service_account" "default" {
   provider = google
 }
 
-resource "google_kms_crypto_key_iam_binding" "sql_crypto_key_iam_binding" {
+resource "google_kms_crypto_key_iam_binding" "sql_key_binding" {
   crypto_key_id = google_kms_crypto_key.sql_crypto_key.id
   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
   members = [
-    "serviceAccount:service-$(var.project_number)@gcp-sa-cloud-sql.iam.gserviceaccount.com",
+    "serviceAccount:service-${var.project_number}@gcp-sa-cloud-sql.iam.gserviceaccount.com",
+    # "serviceAccount:${google_service_account.my_service_account.email}",
   ]
+}
+
+resource "google_kms_crypto_key_iam_binding" "bucket_key_binding" {
+  crypto_key_id = google_kms_crypto_key.storage_crypto_key.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  members = [
+    "serviceAccount:service-${var.project_number}@gs-project-accounts.iam.gserviceaccount.com",
+    # "serviceAccount:${google_service_account.my_service_account.email}",
+  ]
+}
+
+# resource "google_kms_crypto_key_iam_binding" "my_key_binding" {
+#   crypto_key_id = google_kms_crypto_key.vm_crypto_key.id
+#   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+#   members = [
+#     "serviceAccount:${google_service_account.my_service_account.email}",
+#     "serviceAccount:service-${var.project_number}@gcp-sa-cloud-sql.iam.gserviceaccount.com",
+#     "serviceAccount:service-${var.project_number}@gs-project-accounts.iam.gserviceaccount.com",
+#     "serviceAccount:spring-outlet-406505@appspot.gserviceaccount.com",
+#     "serviceAccount:${var.project_number}-compute@developer.gserviceaccount.com"
+#   ]
+# }
+
+resource "google_kms_crypto_key_iam_binding" "crypto_key" {
+  crypto_key_id = google_kms_crypto_key.vm_crypto_key.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+
+  members = [
+    "serviceAccount:service-${data.google_project.project.number}@compute-system.iam.gserviceaccount.com",
+  ]
+}
+
+resource "google_project_iam_member" "kms_admin" {
+  project = var.project_id
+  role    = "roles/cloudkms.admin"
+  member  = "serviceAccount:${var.project_number}-compute@developer.gserviceaccount.com"
+}
+
+# resource "google_project_iam_member" "kms_admin2" {
+#   project = var.project_id
+#   role    = "roles/cloudkms.admin"
+#   member  = "serviceAccount:${google_service_account.my_service_account.email}"
+# }
+
+resource "google_project_iam_binding" "token_creator_binding" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountTokenCreator"
+  members = [
+    "serviceAccount:${var.project_number}-compute@developer.gserviceaccount.com",
+  ]
+}
+data "google_project" "project" {
+  project_id = var.project_id
 }
 
 resource "google_project_service_identity" "cloudsql_service_account" {
@@ -761,22 +815,22 @@ resource "google_project_service_identity" "cloudsql_service_account" {
 }
 
 
-# resource "google_project_iam_binding" "service_account_roles_cloudsql" {
-#   project = var.project_id
-#   role    = "roles/cloudsql.admin"
-#   members = [
-#     "serviceAccount:${google_service_account.my_service_account.email}"
-#   ]
-# }
+resource "google_project_iam_binding" "service_account_roles_cloudsql" {
+  project = var.project_id
+  role    = "roles/cloudsql.admin"
+  members = [
+    "serviceAccount:${google_service_account.my_service_account.email}"
+  ]
+}
 
-# resource "google_project_iam_binding" "cloud_storage_roles_cloudkms" {
-#   project = var.project_id
-#   role    = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
-#   members = [
-#     "serviceAccount:${google_service_account.my_service_account.email}",
-#     "serviceAccount:${google_service_account.service-account-cf.email}"
-#   ]
-# }
+resource "google_project_iam_binding" "cloud_storage_roles_cloudkms" {
+  project = var.project_id
+  role    = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  members = [
+    "serviceAccount:${google_service_account.my_service_account.email}",
+    "serviceAccount:${google_service_account.service-account-cf.email}"
+  ]
+}
 
 # resource "google_project_iam_member" "storage_service_account_role" {
 #   project = var.project_id
@@ -789,33 +843,36 @@ resource "random_id" "example_id" {
   byte_length = 8
 }
 
-# # Create a key ring
-# resource "google_kms_key_ring" "my_key_ring" {
-#   name     = "my-key-ring-${random_id.example_id.hex}"
-#   location = var.region
-# }
+# Create a key ring
+resource "google_kms_key_ring" "my_key_ring" {
+  name = "my-key-ring-${random_id.example_id.hex}"
+  # name = "my-key-ring"
+  location = var.region
+}
 
 # Create CKEM for Virtual Machines
 resource "google_kms_crypto_key" "vm_crypto_key" {
-  name = "vm-crypto-key-${random_id.example_id.hex}"
-  # key_ring        = google_kms_key_ring.my_key_ring.id
-  key_ring        = "projects/${var.project_id}/locations/${var.region}/keyRings/${var.key_ring}"
+  # name = "vm-crypto-key-${random_id.example_id.hex}"
+  name     = "vm-crypto-key"
+  key_ring = google_kms_key_ring.my_key_ring.id
+  # key_ring        = "projects/${var.project_id}/locations/${var.region}/keyRings/${var.key_ring}"
   rotation_period = "2592000s" # 30 days in seconds
 }
 
 # Create CKEM for CloudSQL instance
 resource "google_kms_crypto_key" "sql_crypto_key" {
-  name = "sql-crypto-key-${random_id.example_id.hex}"
-  # key_ring        = google_kms_key_ring.my_key_ring.id
-  key_ring        = "projects/${var.project_id}/locations/${var.region}/keyRings/${var.key_ring}"
+  # name = "sql-crypto-key-${random_id.example_id.hex}"
+  name     = "sql-crypto-key"
+  key_ring = google_kms_key_ring.my_key_ring.id
+  # key_ring        = "projects/${var.project_id}/locations/${var.region}/keyRings/${var.key_ring}"
   rotation_period = "2592000s" # 30 days in seconds
 }
 
 # Create CKEM for Cloud Storage
 resource "google_kms_crypto_key" "storage_crypto_key" {
-  name = "storage-crypto-key-${random_id.example_id.hex}"
-  # key_ring        = google_kms_key_ring.my_key_ring.id
-  key_ring        = "projects/${var.project_id}/locations/${var.region}/keyRings/${var.key_ring}"
+  # name = "storage-crypto-key-${random_id.example_id.hex}"
+  name     = "storage-crypto-key"
+  key_ring = google_kms_key_ring.my_key_ring.id
+  # key_ring        = "projects/${var.project_id}/locations/${var.region}/keyRings/${var.key_ring}"
   rotation_period = "2592000s" # 30 days in seconds
 }
-
