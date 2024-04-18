@@ -197,7 +197,7 @@ resource "google_sql_user" "my_user" {
 resource "random_password" "db_password" {
   length           = 16
   special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
+  override_special = "_%@"
 }
 
 
@@ -476,7 +476,7 @@ resource "google_cloudfunctions2_function" "cloud-function" {
 
 # Create a regional compute instance template
 resource "google_compute_region_instance_template" "web_instance_template" {
-  name  = var.instance_template_name
+  name         = var.instance_template_name
   region       = var.region
   machine_type = var.machine_type
   tags         = ["web-server"]
